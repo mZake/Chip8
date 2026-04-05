@@ -1,0 +1,9 @@
+# Executables
+chip8
+chip8.exe
+
+# Scripts
+devenv.sh
+
+# Directories
+/.vscode
