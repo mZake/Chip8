@@ -21,6 +21,57 @@ constexpr int MAX_PROGRAM_SIZE = 0xE00;
 
 constexpr double FRAME_TIME = 1000.0 / 60.0;
 
+// Suffix pattern:
+// - A: Address
+// - B: Byte
+// - N: Nibble
+// - V: Register V
+// - I: Register I
+// - D: Delay Timer
+// - S: Sound Timer
+// - F: Placeholder
+// - K: Keypad Key
+// 
+// These letters appear in the same order as the positional arguments of the instruction
+enum opcode
+{
+    OPCODE_NONE,
+    OPCODE_CLS,
+    OPCODE_RET,
+    OPCODE_JP_A,
+    OPCODE_CALL_A,
+    OPCODE_SE_VB,
+    OPCODE_SNE_VB,
+    OPCODE_SE_VV,
+    OPCODE_LD_VB,
+    OPCODE_ADD_VB,
+    OPCODE_LD_VV,
+    OPCODE_OR_VV,
+    OPCODE_AND_VV,
+    OPCODE_XOR_VV,
+    OPCODE_ADD_VV,
+    OPCODE_SUB_VV,
+    OPCODE_SHR_V,
+    OPCODE_SUBN_VV,
+    OPCODE_SHL_V,
+    OPCODE_SNE_VV,
+    OPCODE_LD_IA,
+    OPCODE_JP_VA,
+    OPCODE_RND_VB,
+    OPCODE_DRW_VVN,
+    OPCODE_SKP_V,
+    OPCODE_SKNP_V,
+    OPCODE_LD_VD,
+    OPCODE_LD_VK,
+    OPCODE_LD_DV,
+    OPCODE_LD_SV,
+    OPCODE_ADD_IV,
+    OPCODE_LD_FV,
+    OPCODE_LD_BV,
+    OPCODE_LD_IV,
+    OPCODE_LD_VI,
+};
+
 struct platform_state
 {
     SDL_Window* Window;
@@ -43,6 +94,16 @@ struct chip8_state
     uint8_t SoundTimer;
     bool ShouldDraw;
     bool ShouldPlaySound;
+};
+
+struct instruction_data
+{
+    opcode Opcode;
+    uint16_t NNN;
+    uint8_t N;
+    uint8_t X;
+    uint8_t Y;
+    uint8_t KK;
 };
 
 static std::array<uint8_t, 80> s_Fontset = { 
@@ -197,239 +258,276 @@ static bool Chip8LoadProgram(chip8_state& State, std::string_view Filepath)
     return true;
 }
 
-static void Chip8EmulateInstructionCycle(chip8_state& State)
+static uint16_t Chip8FetchInstruction(chip8_state& State)
 {
     uint16_t Instruction = (State.Memory[State.RegisterPC] << 8) | State.Memory[State.RegisterPC + 1];
     State.RegisterPC += 2;
+    return Instruction;
+}
+
+static instruction_data Chip8DecodeInstruction(uint16_t Instruction)
+{
+    instruction_data Data = {};
+    
     switch (Instruction & 0xF000)
     {
         case 0x0000:
         {
             switch (Instruction & 0x000F)
             {
-                // 00E0 - CLS
-                // Clear the display.
-                case 0x0000:
-                {
-                    memset(State.Screen.data(), 0, State.Screen.size());
-                    break;
-                }
-                // 00EE - RET
-                // Return from a subroutine.
-                case 0x000E:
-                {
-                    State.RegisterPC = State.Stack[--State.RegisterSP];
-                    break;
-                }
+                case 0x0000: Data.Opcode = OPCODE_CLS; break;
+                case 0x000E: Data.Opcode = OPCODE_RET; break;
             }
+            break;
+        }
+        case 0x1000: Data.Opcode = OPCODE_JP_A; break;
+        case 0x2000: Data.Opcode = OPCODE_CALL_A; break;
+        case 0x3000: Data.Opcode = OPCODE_SE_VB; break;
+        case 0x4000: Data.Opcode = OPCODE_SNE_VB; break;
+        case 0x5000: Data.Opcode = OPCODE_SE_VV; break;
+        case 0x6000: Data.Opcode = OPCODE_LD_VB; break;
+        case 0x7000: Data.Opcode = OPCODE_ADD_VB; break;
+        case 0x8000:
+        {
+            switch (Instruction & 0x000F)
+            {
+                case 0x0000: Data.Opcode = OPCODE_LD_VV; break;
+                case 0x0001: Data.Opcode = OPCODE_OR_VV; break;
+                case 0x0002: Data.Opcode = OPCODE_AND_VV; break;
+                case 0x0003: Data.Opcode = OPCODE_XOR_VV; break;
+                case 0x0004: Data.Opcode = OPCODE_ADD_VV; break;
+                case 0x0005: Data.Opcode = OPCODE_SUB_VV; break;
+                case 0x0006: Data.Opcode = OPCODE_SHR_V; break;
+                case 0x0007: Data.Opcode = OPCODE_SUBN_VV; break;
+                case 0x000E: Data.Opcode = OPCODE_SHL_V; break;
+            }
+            break;
+        }
+        case 0x9000: Data.Opcode = OPCODE_SNE_VV; break;
+        case 0xA000: Data.Opcode = OPCODE_LD_IA; break;
+        case 0xB000: Data.Opcode = OPCODE_JP_VA; break;
+        case 0xC000: Data.Opcode = OPCODE_RND_VB; break;
+        case 0xD000: Data.Opcode = OPCODE_DRW_VVN; break;
+        case 0xE000:
+        {
+            switch (Instruction & 0x00FF)
+            {
+                case 0x009E: Data.Opcode = OPCODE_SKP_V; break;
+                case 0x00A1: Data.Opcode = OPCODE_SKNP_V; break;
+            }
+            break;
+        }
+        case 0xF000:
+        {
+            switch (Instruction & 0x00FF)
+            {
+                case 0x0007: Data.Opcode = OPCODE_LD_VD; break;
+                case 0x000A: Data.Opcode = OPCODE_LD_VK; break;
+                case 0x0015: Data.Opcode = OPCODE_LD_DV; break;
+                case 0x0018: Data.Opcode = OPCODE_LD_SV; break;
+                case 0x001E: Data.Opcode = OPCODE_ADD_IV; break;
+                case 0x0029: Data.Opcode = OPCODE_LD_FV; break;
+                case 0x0033: Data.Opcode = OPCODE_LD_BV; break;
+                case 0x0055: Data.Opcode = OPCODE_LD_IV; break;
+                case 0x0065: Data.Opcode = OPCODE_LD_VI; break;
+            }
+            break;
+        }
+        default: Data.Opcode = OPCODE_NONE; break;
+    }
+    
+    Data.NNN = (Instruction & 0x0FFF);
+    Data.N = (Instruction & 0x000F);
+    Data.X = (Instruction & 0x0F00) >> 8;
+    Data.Y = (Instruction & 0x00F0) >> 4;
+    Data.KK = (Instruction & 0x00FF);
+    
+    return Data;
+}
+
+static void Chip8ExecuteInstruction(chip8_state& State, instruction_data Data)
+{
+    switch (Data.Opcode)
+    {
+        case OPCODE_NONE:
+            break;
+        // 00E0 - CLS
+        // Clear the display.
+        case OPCODE_CLS:
+        {
+            memset(State.Screen.data(), 0, State.Screen.size());
+            break;
+        }
+        // 00EE - RET
+        // Return from a subroutine.
+        case OPCODE_RET:
+        {
+            State.RegisterPC = State.Stack[--State.RegisterSP];
             break;
         }
         // 1nnn - JP addr
         // Jump to location nnn.
-        case 0x1000:
+        case OPCODE_JP_A:
         {
-            uint16_t Address = Instruction & 0x0FFF;
-            State.RegisterPC = Address;
+            State.RegisterPC = Data.NNN;
             break;
         }
         // 2nnn - CALL addr
         // Call subroutine at nnn.
-        case 0x2000:
+        case OPCODE_CALL_A:
         {
-            uint16_t Address = Instruction & 0x0FFF;
             State.Stack[State.RegisterSP++] = State.RegisterPC;
-            State.RegisterPC = Address;
+            State.RegisterPC = Data.NNN;
             break;
         }
         // 3xkk - SE Vx, byte
         // Skip next instruction if Vx = kk.
-        case 0x3000:
+        case OPCODE_SE_VB:
         {
-            uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-            uint8_t Byte = (Instruction & 0x00FF);
-            if (State.RegisterV[RegisterV] == Byte)
+            if (State.RegisterV[Data.X] == Data.KK)
                 State.RegisterPC += 2;
             break;
         }
         // 4xkk - SNE Vx, byte
         // Skip next instruction if Vx != kk.
-        case 0x4000:
+        case OPCODE_SNE_VB:
         {
-            uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-            uint8_t Byte = (Instruction & 0x00FF);
-            if (State.RegisterV[RegisterV] != Byte)
+            if (State.RegisterV[Data.X] != Data.KK)
                 State.RegisterPC += 2;
             break;
         }
         // 5xy0 - SE Vx, Vy
         // Skip next instruction if Vx = Vy.
-        case 0x5000:
+        case OPCODE_SE_VV:
         {
-            uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-            uint8_t Y = (Instruction & 0x00F0) >> 4;
-            if (State.RegisterV[RegisterV] == State.RegisterV[Y])
+            if (State.RegisterV[Data.X] == State.RegisterV[Data.Y])
                 State.RegisterPC += 2;
             break;
         }
         // 6xkk - LD Vx, byte
         // Set Vx = kk.
-        case 0x6000:
+        case OPCODE_LD_VB:
         {
-            uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-            uint8_t Byte = Instruction & 0x00FF;
-            State.RegisterV[RegisterV] = Byte;
+            State.RegisterV[Data.X] = Data.KK;
             break;
         }
         // 7xkk - ADD Vx, byte
         // Set Vx = Vx + kk.
-        case 0x7000:
+        case OPCODE_ADD_VB:
         {
-            uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-            uint8_t Byte = Instruction & 0x00FF;
-            State.RegisterV[RegisterV] += Byte;
+            State.RegisterV[Data.X] += Data.KK;
             break;
         }
-        case 0x8000:
+        // 8xy0 - LD Vx, Vy
+        // Set Vx = Vy.
+        case OPCODE_LD_VV:
         {
-            switch (Instruction & 0x000F)
-            {
-                // 8xy0 - LD Vx, Vy
-                // Set Vx = Vy.
-                case 0x0000:
-                {
-                    uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-                    uint8_t Y = (Instruction & 0x00F0) >> 4;
-                    State.RegisterV[RegisterV] = State.RegisterV[Y];
-                    break;
-                }
-                // 8xy1 - OR Vx, Vy
-                // Set Vx = Vx OR Vy.
-                case 0x0001:
-                {
-                    uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-                    uint8_t Y = (Instruction & 0x00F0) >> 4;
-                    State.RegisterV[RegisterV] |= State.RegisterV[Y];
-                    break;
-                }
-                // 8xy2 - AND Vx, Vy
-                // Set Vx = Vx AND Vy.
-                case 0x0002:
-                {
-                    uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-                    uint8_t Y = (Instruction & 0x00F0) >> 4;
-                    State.RegisterV[RegisterV] &= State.RegisterV[Y];
-                    break;
-                }
-                // 8xy3 - XOR Vx, Vy
-                // Set Vx = Vx XOR Vy.
-                case 0x0003:
-                {
-                    uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-                    uint8_t Y = (Instruction & 0x00F0) >> 4;
-                    State.RegisterV[RegisterV] ^= State.RegisterV[Y];
-                    break;
-                }
-                // 8xy4 - ADD Vx, Vy
-                // Set Vx = Vx + Vy, set VF = carry.
-                case 0x0004:
-                {
-                    uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-                    uint8_t Y = (Instruction & 0x00F0) >> 4;
-                    uint16_t Result = State.RegisterV[RegisterV] + State.RegisterV[Y];
-                    State.RegisterV[RegisterV] = Result & 0x00FF;
-                    State.RegisterV[0xF] = (Result > 0xFF);
-                    break;
-                }
-                // 8xy5 - SUB Vx, Vy
-                // Set Vx = Vx - Vy, set VF = NOT borrow.
-                case 0x0005:
-                {
-                    uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-                    uint8_t Y = (Instruction & 0x00F0) >> 4;
-                    State.RegisterV[0xF] = (State.RegisterV[RegisterV] >= State.RegisterV[Y]);
-                    State.RegisterV[RegisterV] -= State.RegisterV[Y];
-                    break;
-                }
-                // 8xy6 - SHR Vx {, Vy}
-                // Set Vx = Vx SHR 1.
-                case 0x0006:
-                {
-                    uint8_t RegisterV = (Instruction & 0x0F00) >> 8;
-                    State.RegisterV[0xF] = State.RegisterV[RegisterV] & 0x01;
-                    State.RegisterV[RegisterV] >>= 1;
-                    break;
-                }
-                // 8xy7 - SUBN Vx, Vy
-                // Set Vx = Vy - Vx, set VF = NOT borrow.
-                case 0x0007:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    uint8_t Y = (Instruction & 0x00F0) >> 4;
-                    State.RegisterV[0xF] = (State.RegisterV[Y] >= State.RegisterV[X]);
-                    State.RegisterV[X] = State.RegisterV[Y] - State.RegisterV[X];
-                    break;
-                }
-                // 8xyE - SHL Vx {, Vy}
-                // Set Vx = Vx SHL 1.
-                case 0x000E:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    State.RegisterV[0xF] = (State.RegisterV[X] & 0x80) >> 7;
-                    State.RegisterV[X] <<= 1;
-                    break;
-                }
-            }
+            State.RegisterV[Data.X] = State.RegisterV[Data.Y];
             break;
         }
+        // 8xy1 - OR Vx, Vy
+        // Set Vx = Vx OR Vy.
+        case OPCODE_OR_VV:
+        {
+            State.RegisterV[Data.X] |= State.RegisterV[Data.Y];
+            break;
+        }
+        // 8xy2 - AND Vx, Vy
+        // Set Vx = Vx AND Vy.
+        case OPCODE_AND_VV:
+        {
+            State.RegisterV[Data.X] &= State.RegisterV[Data.Y];
+            break;
+        }
+        // 8xy3 - XOR Vx, Vy
+        // Set Vx = Vx XOR Vy.
+        case OPCODE_XOR_VV:
+        {
+            State.RegisterV[Data.X] ^= State.RegisterV[Data.Y];
+            break;
+        }
+        // 8xy4 - ADD Vx, Vy
+        // Set Vx = Vx + Vy, set VF = carry.
+        case OPCODE_ADD_VV:
+        {
+            uint16_t Result = State.RegisterV[Data.X] + State.RegisterV[Data.Y];
+            State.RegisterV[Data.X] = Result & 0x00FF;
+            State.RegisterV[0xF] = (Result > 0xFF);
+            break;
+        }
+        // 8xy5 - SUB Vx, Vy
+        // Set Vx = Vx - Vy, set VF = NOT borrow.
+        case OPCODE_SUB_VV:
+        {
+            State.RegisterV[0xF] = (State.RegisterV[Data.X] >= State.RegisterV[Data.Y]);
+            State.RegisterV[Data.X] -= State.RegisterV[Data.Y];
+            break;
+        }
+        // 8xy6 - SHR Vx {, Vy}
+        // Set Vx = Vx SHR 1.
+        case OPCODE_SHR_V:
+        {
+            State.RegisterV[0xF] = State.RegisterV[Data.X] & 0x01;
+            State.RegisterV[Data.X] >>= 1;
+            break;
+        }
+        // 8xy7 - SUBN Vx, Vy
+        // Set Vx = Vy - Vx, set VF = NOT borrow.
+        case OPCODE_SUBN_VV:
+        {
+            State.RegisterV[0xF] = (State.RegisterV[Data.Y] >= State.RegisterV[Data.X]);
+            State.RegisterV[Data.X] = State.RegisterV[Data.Y] - State.RegisterV[Data.X];
+            break;
+        }
+        // 8xyE - SHL Vx {, Vy}
+        // Set Vx = Vx SHL 1.
+        case OPCODE_SHL_V:
+        {
+            State.RegisterV[0xF] = (State.RegisterV[Data.X] & 0x80) >> 7;
+            State.RegisterV[Data.X] <<= 1;
+            break;
+        }
+        break;
         // 9xy0 - SNE Vx, Vy
         // Skip next instruction if Vx != Vy.
-        case 0x9000:
+        case OPCODE_SNE_VV:
         {
-            uint8_t X = (Instruction & 0x0F00) >> 8;
-            uint8_t Y = (Instruction & 0x00F0) >> 4;
-            if (State.RegisterV[X] != State.RegisterV[Y])
+            if (State.RegisterV[Data.X] != State.RegisterV[Data.Y])
                 State.RegisterPC += 2;
             break;
         }
         // Annn - LD I, addr
         // Set I = nnn.
-        case 0xA000:
+        case OPCODE_LD_IA:
         {
-            uint16_t Address = Instruction & 0x0FFF;
-            State.RegisterI = Address;
+            State.RegisterI = Data.NNN;
             break;
         }
         // Bnnn - JP V0, addr
         // Jump to location nnn + V0.
-        case 0xB000:
+        case OPCODE_JP_VA:
         {
-            uint16_t Address = Instruction & 0x0FFF;
-            State.RegisterPC = Address + State.RegisterV[0x0];
+            State.RegisterPC = Data.NNN + State.RegisterV[0x0];
             break;
         }
         // Cxkk - RND Vx, byte
         // Set Vx = random byte AND kk.
-        case 0xC000:
+        case OPCODE_RND_VB:
         {
-            uint8_t X = (Instruction & 0x0F00) >> 8;
-            uint8_t Byte = Instruction & 0x00FF;
-            State.RegisterV[X] = GetRandomByte() & Byte;
+            State.RegisterV[Data.X] = GetRandomByte() & Data.KK;
             break;
         }
         // Dxyn - DRW Vx, Vy, nibble
         // Display n-byte sprite starting at Memory location I at (Vx, Vy), set VF = collision.
-        case 0xD000:
+        case OPCODE_DRW_VVN:
         {
-            uint8_t X = (Instruction & 0x0F00) >> 8;
-            uint8_t Y = (Instruction & 0x00F0) >> 4;
-            uint8_t Height = Instruction & 0x000F;
-            uint8_t StartX = State.RegisterV[X] % SCREEN_WIDTH;
-            uint8_t StartY = State.RegisterV[Y] % SCREEN_HEIGHT;
+            uint8_t StartX = State.RegisterV[Data.X] % SCREEN_WIDTH;
+            uint8_t StartY = State.RegisterV[Data.Y] % SCREEN_HEIGHT;
             
             State.RegisterV[0xF] = 0;
             State.ShouldDraw = true;
             
-            for (int Row = 0; Row < Height; ++Row)
+            for (int Row = 0; Row < Data.N; ++Row)
             {
                 uint8_t Sprite = State.Memory[State.RegisterI + Row];
                 for (int Column = 0; Column < 8; ++Column)
@@ -451,130 +549,112 @@ static void Chip8EmulateInstructionCycle(chip8_state& State)
             }
             break;
         }
-        case 0xE000:
+        // Ex9E - SKP Vx
+        // Skip next instruction if key with the value of Vx is pressed.
+        case OPCODE_SKP_V:
         {
-            switch (Instruction & 0x00FF)
+            uint8_t Key = State.RegisterV[Data.X];
+            if (State.Keypad[Key])
+                State.RegisterPC += 2;
+            break;
+        }
+        // ExA1 - SKNP Vx
+        // Skip next instruction if key with the value of Vx is not pressed.
+        case OPCODE_SKNP_V:
+        {
+            uint8_t Key = State.RegisterV[Data.X];
+            if (!State.Keypad[Key])
+                State.RegisterPC += 2;
+            break;
+        }
+        // Fx07 - LD Vx, DT
+        // Set Vx = delay timer value.
+        case OPCODE_LD_VD:
+        {
+            State.RegisterV[Data.X] = State.DelayTimer;
+            break;
+        }
+        // Fx0A - LD Vx, K
+        // Wait for a key press, store the value of the key in Vx.
+        case OPCODE_LD_VK:
+        {
+            bool KeyPressed = false;
+            for (int Key = 0; Key < 16; ++Key)
             {
-                // Ex9E - SKP Vx
-                // Skip next instruction if key with the value of Vx is pressed.
-                case 0x009E:
+                if (State.Keypad[Key] != 0)
                 {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    uint8_t Key = State.RegisterV[X];
-                    if (State.Keypad[Key])
-                        State.RegisterPC += 2;
-                    break;
+                    State.RegisterV[Data.X] = Key;
+                    KeyPressed = true;
                 }
-                // ExA1 - SKNP Vx
-                // Skip next instruction if key with the value of Vx is not pressed.
-                case 0x00A1:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    uint8_t Key = State.RegisterV[X];
-                    if (!State.Keypad[Key])
-                        State.RegisterPC += 2;
-                    break;
-                }
+            }
+            if (!KeyPressed)
+            {
+                State.RegisterPC -= 2;
+                return;
             }
             break;
         }
-        case 0xF000:
+        // Fx15 - LD DT, Vx
+        // Set delay timer = Vx.
+        case OPCODE_LD_DV:
         {
-            switch (Instruction & 0x00FF)
-            {
-                // Fx07 - LD Vx, DT
-                // Set Vx = delay timer value.
-                case 0x0007:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    State.RegisterV[X] = State.DelayTimer;
-                    break;
-                }
-                // Fx0A - LD Vx, K
-                // Wait for a key press, store the value of the key in Vx.
-                case 0x000A:
-                {
-                    bool KeyPressed = false;
-                    for (int Key = 0; Key < 16; ++Key)
-                    {
-                        if (State.Keypad[Key] != 0)
-                        {
-                            uint8_t X = (Instruction & 0x0F00) >> 8;
-                            State.RegisterV[X] = Key;
-                            KeyPressed = true;
-                        }
-                    }
-                    if (!KeyPressed)
-                    {
-                        State.RegisterPC -= 2;
-                        return;
-                    }
-                    break;
-                }
-                // Fx15 - LD DT, Vx
-                // Set delay timer = Vx.
-                case 0x0015:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    State.DelayTimer = State.RegisterV[X];
-                    break;
-                }
-                // Fx18 - LD ST, Vx
-                // Set sound timer = Vx.
-                case 0x0018:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    State.SoundTimer = State.RegisterV[X];
-                    break;
-                }
-                // Fx1E - ADD I, Vx
-                // Set I = I + Vx.
-                case 0x001E:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    State.RegisterI += State.RegisterV[X];
-                    break;
-                }
-                // Fx29 - LD F, Vx
-                // Set I = location of sprite for digit Vx.
-                case 0x0029:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    State.RegisterI = FONTSET_ADDRESS + State.RegisterV[X] * FONT_SIZE;
-                    break;
-                }
-                // Fx33 - LD B, Vx
-                // Store BCD representation of Vx in Memory locations I, I+1, and I+2.
-                case 0x0033:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    State.Memory[State.RegisterI] = State.RegisterV[X] / 100;
-                    State.Memory[State.RegisterI + 1] = (State.RegisterV[X] / 10) % 10;
-                    State.Memory[State.RegisterI + 2] = State.RegisterV[X] % 10;
-                    break;
-                }
-                // Fx55 - LD [I], Vx
-                // Store registers V0 through Vx in Memory starting at location I.
-                case 0x0055:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    for (int Index = 0; Index <= X; ++Index)
-                        State.Memory[State.RegisterI + Index] = State.RegisterV[Index];
-                    break;
-                }
-                // Fx65 - LD Vx, [I]
-                // Read registers V0 through Vx from Memory starting at location I.
-                case 0x0065:
-                {
-                    uint8_t X = (Instruction & 0x0F00) >> 8;
-                    for (int Index = 0; Index <= X; ++Index)
-                        State.RegisterV[Index] = State.Memory[State.RegisterI + Index];
-                    break;
-                }
-            }
+            State.DelayTimer = State.RegisterV[Data.X];
+            break;
+        }
+        // Fx18 - LD ST, Vx
+        // Set sound timer = Vx.
+        case OPCODE_LD_SV:
+        {
+            State.SoundTimer = State.RegisterV[Data.X];
+            break;
+        }
+        // Fx1E - ADD I, Vx
+        // Set I = I + Vx.
+        case OPCODE_ADD_IV:
+        {
+            State.RegisterI += State.RegisterV[Data.X];
+            break;
+        }
+        // Fx29 - LD F, Vx
+        // Set I = location of sprite for digit Vx.
+        case OPCODE_LD_FV:
+        {
+            State.RegisterI = FONTSET_ADDRESS + State.RegisterV[Data.X] * FONT_SIZE;
+            break;
+        }
+        // Fx33 - LD B, Vx
+        // Store BCD representation of Vx in Memory locations I, I+1, and I+2.
+        case OPCODE_LD_BV:
+        {
+            State.Memory[State.RegisterI] = State.RegisterV[Data.X] / 100;
+            State.Memory[State.RegisterI + 1] = (State.RegisterV[Data.X] / 10) % 10;
+            State.Memory[State.RegisterI + 2] = State.RegisterV[Data.X] % 10;
+            break;
+        }
+        // Fx55 - LD [I], Vx
+        // Store registers V0 through Vx in Memory starting at location I.
+        case OPCODE_LD_IV:
+        {
+            for (int Index = 0; Index <= Data.X; ++Index)
+                State.Memory[State.RegisterI + Index] = State.RegisterV[Index];
+            break;
+        }
+        // Fx65 - LD Vx, [I]
+        // Read registers V0 through Vx from Memory starting at location I.
+        case OPCODE_LD_VI:
+        {
+            for (int Index = 0; Index <= Data.X; ++Index)
+                State.RegisterV[Index] = State.Memory[State.RegisterI + Index];
             break;
         }
     }
+}
+
+static void Chip8EmulateInstructionCycle(chip8_state& State)
+{
+    uint16_t Instruction = Chip8FetchInstruction(State);
+    instruction_data Data = Chip8DecodeInstruction(Instruction);
+    Chip8ExecuteInstruction(State, Data);
 }
 
 static void Chip8UpdateTimers(chip8_state& State)
