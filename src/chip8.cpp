@@ -70,6 +70,7 @@ enum opcode
     OPCODE_LD_BV,
     OPCODE_LD_IV,
     OPCODE_LD_VI,
+    OPCODE_COUNT,
 };
 
 struct platform_state
@@ -112,6 +113,7 @@ static void PlatformProcessEvents(platform_state& State);
 static void PlatformUpdateKeypad(platform_state& State, std::array<uint8_t, 16>& Keypad);
 static void PlatformRenderScreen(platform_state& State, const std::array<uint8_t, 2048>& Screen);
 
+static void OpcodeStub(chip8_state& State, instruction_data Data);
 static void OpcodeCLS(chip8_state& State, instruction_data Data);
 static void OpcodeRET(chip8_state& State, instruction_data Data);
 static void OpcodeJP_A(chip8_state& State, instruction_data Data);
@@ -171,6 +173,45 @@ static std::array<uint8_t, 80> s_Fontset = {
     0xE0, 0x90, 0x90, 0x90, 0xE0, // D
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+};
+
+using opcode_handler = void(*)(chip8_state& State, instruction_data Data);
+static std::array<opcode_handler, OPCODE_COUNT> s_DispatchTable = {
+    OpcodeStub,     // OPCODE_NONE,
+    OpcodeCLS,      // OPCODE_CLS,
+    OpcodeRET,      // OPCODE_RET,
+    OpcodeJP_A,     // OPCODE_JP_A,
+    OpcodeCALL_A,   // OPCODE_CALL_A,
+    OpcodeSE_VB,    // OPCODE_SE_VB,
+    OpcodeSNE_VB,   // OPCODE_SNE_VB,
+    OpcodeSE_VV,    // OPCODE_SE_VV,
+    OpcodeLD_VB,    // OPCODE_LD_VB,
+    OpcodeADD_VB,   // OPCODE_ADD_VB,
+    OpcodeLD_VV,    // OPCODE_LD_VV,
+    OpcodeOR_VV,    // OPCODE_OR_VV,
+    OpcodeAND_VV,   // OPCODE_AND_VV,
+    OpcodeXOR_VV,   // OPCODE_XOR_VV,
+    OpcodeADD_VV,   // OPCODE_ADD_VV,
+    OpcodeSUB_VV,   // OPCODE_SUB_VV,
+    OpcodeSHR_V,    // OPCODE_SHR_V,
+    OpcodeSUBN_VV,  // OPCODE_SUBN_VV,
+    OpcodeSHL_V,    // OPCODE_SHL_V,
+    OpcodeSNE_VV,   // OPCODE_SNE_VV,
+    OpcodeLD_IA,    // OPCODE_LD_IA,
+    OpcodeJP_VA,    // OPCODE_JP_VA,
+    OpcodeRND_VB,   // OPCODE_RND_VB,
+    OpcodeDRW_VVN,  // OPCODE_DRW_VVN,
+    OpcodeSKP_V,    // OPCODE_SKP_V,
+    OpcodeSKNP_V,   // OPCODE_SKNP_V,
+    OpcodeLD_VD,    // OPCODE_LD_VD,
+    OpcodeLD_VK,    // OPCODE_LD_VK,
+    OpcodeLD_DV,    // OPCODE_LD_DV,
+    OpcodeLD_SV,    // OPCODE_LD_SV,
+    OpcodeADD_IV,   // OPCODE_ADD_IV,
+    OpcodeLD_FV,    // OPCODE_LD_FV,
+    OpcodeLD_BV,    // OPCODE_LD_BV,
+    OpcodeLD_IV,    // OPCODE_LD_IV,
+    OpcodeLD_VI,    // OPCODE_LD_VI,
 };
 
 static uint8_t GetRandomByte()
@@ -278,6 +319,10 @@ static void PlatformRenderScreen(platform_state& State, const std::array<uint8_t
     }
     
     SDL_RenderPresent(State.Renderer);
+}
+
+static void OpcodeStub(chip8_state& State, instruction_data Data)
+{
 }
 
 static void OpcodeCLS(chip8_state& State, instruction_data Data)
@@ -642,44 +687,8 @@ static instruction_data Chip8DecodeInstruction(uint16_t Instruction)
 
 static void Chip8ExecuteInstruction(chip8_state& State, instruction_data Data)
 {
-    switch (Data.Opcode)
-    {
-        case OPCODE_NONE:       break;
-        case OPCODE_CLS:        OpcodeCLS(State, Data); break;
-        case OPCODE_RET:        OpcodeRET(State, Data); break;
-        case OPCODE_JP_A:       OpcodeJP_A(State, Data); break;
-        case OPCODE_CALL_A:     OpcodeCALL_A(State, Data); break;
-        case OPCODE_SE_VB:      OpcodeSE_VB(State, Data); break;
-        case OPCODE_SNE_VB:     OpcodeSNE_VB(State, Data); break;
-        case OPCODE_SE_VV:      OpcodeSE_VV(State, Data); break;
-        case OPCODE_LD_VB:      OpcodeLD_VB(State, Data); break;
-        case OPCODE_ADD_VB:     OpcodeADD_VB(State, Data); break;
-        case OPCODE_LD_VV:      OpcodeLD_VV(State, Data); break;
-        case OPCODE_OR_VV:      OpcodeOR_VV(State, Data); break;
-        case OPCODE_AND_VV:     OpcodeAND_VV(State, Data); break;
-        case OPCODE_XOR_VV:     OpcodeXOR_VV(State, Data); break;
-        case OPCODE_ADD_VV:     OpcodeADD_VV(State, Data); break;
-        case OPCODE_SUB_VV:     OpcodeSUB_VV(State, Data); break;
-        case OPCODE_SHR_V:      OpcodeSHR_V(State, Data); break;
-        case OPCODE_SUBN_VV:    OpcodeSUBN_VV(State, Data); break;
-        case OPCODE_SHL_V:      OpcodeSHL_V(State, Data); break;
-        case OPCODE_SNE_VV:     OpcodeSNE_VV(State, Data); break;
-        case OPCODE_LD_IA:      OpcodeLD_IA(State, Data); break;
-        case OPCODE_JP_VA:      OpcodeJP_VA(State, Data); break;
-        case OPCODE_RND_VB:     OpcodeRND_VB(State, Data); break;
-        case OPCODE_DRW_VVN:    OpcodeDRW_VVN(State, Data); break;
-        case OPCODE_SKP_V:      OpcodeSKP_V(State, Data); break;
-        case OPCODE_SKNP_V:     OpcodeSKNP_V(State, Data); break;
-        case OPCODE_LD_VD:      OpcodeLD_VD(State, Data); break;
-        case OPCODE_LD_VK:      OpcodeLD_VK(State, Data); break;
-        case OPCODE_LD_DV:      OpcodeLD_DV(State, Data); break;
-        case OPCODE_LD_SV:      OpcodeLD_SV(State, Data); break;
-        case OPCODE_ADD_IV:     OpcodeADD_IV(State, Data); break;
-        case OPCODE_LD_FV:      OpcodeLD_FV(State, Data); break;
-        case OPCODE_LD_BV:      OpcodeLD_BV(State, Data); break;
-        case OPCODE_LD_IV:      OpcodeLD_IV(State, Data); break;
-        case OPCODE_LD_VI:      OpcodeLD_VI(State, Data); break;
-    }
+    opcode_handler Handler = s_DispatchTable[Data.Opcode];
+    Handler(State, Data);
 }
 
 static void Chip8EmulateInstructionCycle(chip8_state& State)
