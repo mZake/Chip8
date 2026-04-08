@@ -106,6 +106,54 @@ struct instruction_data
     uint8_t KK;
 };
 
+static bool InitPlatform(platform_state& State);
+static void ClosePlatform(platform_state& State);
+static void PlatformProcessEvents(platform_state& State);
+static void PlatformUpdateKeypad(platform_state& State, std::array<uint8_t, 16>& Keypad);
+static void PlatformRenderScreen(platform_state& State, const std::array<uint8_t, 2048>& Screen);
+
+static void OpcodeCLS(chip8_state& State, instruction_data Data);
+static void OpcodeRET(chip8_state& State, instruction_data Data);
+static void OpcodeJP_A(chip8_state& State, instruction_data Data);
+static void OpcodeCALL_A(chip8_state& State, instruction_data Data);
+static void OpcodeSE_VB(chip8_state& State, instruction_data Data);
+static void OpcodeSNE_VB(chip8_state& State, instruction_data Data);
+static void OpcodeSE_VV(chip8_state& State, instruction_data Data);
+static void OpcodeLD_VB(chip8_state& State, instruction_data Data);
+static void OpcodeADD_VB(chip8_state& State, instruction_data Data);
+static void OpcodeLD_VV(chip8_state& State, instruction_data Data);
+static void OpcodeOR_VV(chip8_state& State, instruction_data Data);
+static void OpcodeAND_VV(chip8_state& State, instruction_data Data);
+static void OpcodeXOR_VV(chip8_state& State, instruction_data Data);
+static void OpcodeADD_VV(chip8_state& State, instruction_data Data);
+static void OpcodeSUB_VV(chip8_state& State, instruction_data Data);
+static void OpcodeSHR_V(chip8_state& State, instruction_data Data);
+static void OpcodeSUBN_VV(chip8_state& State, instruction_data Data);
+static void OpcodeSHL_V(chip8_state& State, instruction_data Data);
+static void OpcodeSNE_VV(chip8_state& State, instruction_data Data);
+static void OpcodeLD_IA(chip8_state& State, instruction_data Data);
+static void OpcodeJP_VA(chip8_state& State, instruction_data Data);
+static void OpcodeRND_VB(chip8_state& State, instruction_data Data);
+static void OpcodeDRW_VVN(chip8_state& State, instruction_data Data);
+static void OpcodeSKP_V(chip8_state& State, instruction_data Data);
+static void OpcodeSKNP_V(chip8_state& State, instruction_data Data);
+static void OpcodeLD_VD(chip8_state& State, instruction_data Data);
+static void OpcodeLD_VK(chip8_state& State, instruction_data Data);
+static void OpcodeLD_DV(chip8_state& State, instruction_data Data);
+static void OpcodeLD_SV(chip8_state& State, instruction_data Data);
+static void OpcodeADD_IV(chip8_state& State, instruction_data Data);
+static void OpcodeLD_FV(chip8_state& State, instruction_data Data);
+static void OpcodeLD_BV(chip8_state& State, instruction_data Data);
+static void OpcodeLD_IV(chip8_state& State, instruction_data Data);
+static void OpcodeLD_VI(chip8_state& State, instruction_data Data);
+
+static bool Chip8LoadProgram(chip8_state& State, std::string_view Filepath);
+static uint16_t Chip8FetchInstruction(chip8_state& State);
+static instruction_data Chip8DecodeInstruction(uint16_t Instruction);
+static void Chip8ExecuteInstruction(chip8_state& State, instruction_data Data);
+static void Chip8EmulateInstructionCycle(chip8_state& State);
+static void Chip8UpdateTimers(chip8_state& State);
+
 static std::array<uint8_t, 80> s_Fontset = { 
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -232,6 +280,253 @@ static void PlatformRenderScreen(platform_state& State, const std::array<uint8_t
     SDL_RenderPresent(State.Renderer);
 }
 
+static void OpcodeCLS(chip8_state& State, instruction_data Data)
+{
+    memset(State.Screen.data(), 0, State.Screen.size());
+}
+
+static void OpcodeRET(chip8_state& State, instruction_data Data)
+{
+    State.RegisterPC = State.Stack[--State.RegisterSP];
+}
+
+static void OpcodeJP_A(chip8_state& State, instruction_data Data)
+{
+    State.RegisterPC = Data.NNN;
+}
+
+static void OpcodeCALL_A(chip8_state& State, instruction_data Data)
+{
+    State.Stack[State.RegisterSP++] = State.RegisterPC;
+    State.RegisterPC = Data.NNN;
+}
+
+static void OpcodeSE_VB(chip8_state& State, instruction_data Data)
+{
+    if (State.RegisterV[Data.X] == Data.KK)
+    {
+        State.RegisterPC += 2;
+    }
+}
+
+static void OpcodeSNE_VB(chip8_state& State, instruction_data Data)
+{
+    if (State.RegisterV[Data.X] != Data.KK)
+    {
+        State.RegisterPC += 2;
+    }
+}
+
+static void OpcodeSE_VV(chip8_state& State, instruction_data Data)
+{
+    if (State.RegisterV[Data.X] == State.RegisterV[Data.Y])
+    {
+        State.RegisterPC += 2;
+    }
+}
+
+static void OpcodeLD_VB(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[Data.X] = Data.KK;
+}
+
+static void OpcodeADD_VB(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[Data.X] += Data.KK;
+}
+
+static void OpcodeLD_VV(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[Data.X] = State.RegisterV[Data.Y];
+}
+
+static void OpcodeOR_VV(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[Data.X] |= State.RegisterV[Data.Y];
+}
+
+static void OpcodeAND_VV(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[Data.X] &= State.RegisterV[Data.Y];
+}
+
+static void OpcodeXOR_VV(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[Data.X] ^= State.RegisterV[Data.Y];
+}
+
+static void OpcodeADD_VV(chip8_state& State, instruction_data Data)
+{
+    uint16_t Result = State.RegisterV[Data.X] + State.RegisterV[Data.Y];
+    State.RegisterV[Data.X] = Result & 0x00FF;
+    State.RegisterV[0xF] = (Result > 0xFF);
+}
+
+static void OpcodeSUB_VV(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[0xF] = (State.RegisterV[Data.X] >= State.RegisterV[Data.Y]);
+    State.RegisterV[Data.X] -= State.RegisterV[Data.Y];
+}
+
+static void OpcodeSHR_V(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[0xF] = State.RegisterV[Data.X] & 0x01;
+    State.RegisterV[Data.X] >>= 1;
+}
+
+static void OpcodeSUBN_VV(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[0xF] = (State.RegisterV[Data.Y] >= State.RegisterV[Data.X]);
+    State.RegisterV[Data.X] = State.RegisterV[Data.Y] - State.RegisterV[Data.X];
+}
+
+static void OpcodeSHL_V(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[0xF] = (State.RegisterV[Data.X] & 0x80) >> 7;
+    State.RegisterV[Data.X] <<= 1;
+}
+
+static void OpcodeSNE_VV(chip8_state& State, instruction_data Data)
+{
+    if (State.RegisterV[Data.X] != State.RegisterV[Data.Y])
+    {
+        State.RegisterPC += 2;
+    }
+}
+
+static void OpcodeLD_IA(chip8_state& State, instruction_data Data)
+{
+    State.RegisterI = Data.NNN;
+}
+
+static void OpcodeJP_VA(chip8_state& State, instruction_data Data)
+{
+    State.RegisterPC = Data.NNN + State.RegisterV[0x0];
+}
+
+static void OpcodeRND_VB(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[Data.X] = GetRandomByte() & Data.KK;
+}
+
+static void OpcodeDRW_VVN(chip8_state& State, instruction_data Data)
+{
+    uint8_t StartX = State.RegisterV[Data.X] % SCREEN_WIDTH;
+    uint8_t StartY = State.RegisterV[Data.Y] % SCREEN_HEIGHT;
+    
+    State.RegisterV[0xF] = 0;
+    State.ShouldDraw = true;
+    
+    for (int Row = 0; Row < Data.N; ++Row)
+    {
+        uint8_t Sprite = State.Memory[State.RegisterI + Row];
+        for (int Column = 0; Column < 8; ++Column)
+        {
+            uint8_t PositionX = StartX + Column;
+            uint8_t PositionY = StartY + Row;
+            if (PositionX >= SCREEN_WIDTH || PositionY >= SCREEN_HEIGHT)
+            {
+                continue;
+            }
+            
+            uint8_t Pixel = Sprite & (0x80 >> Column);
+            if (Pixel != 0)
+            {
+                uint16_t Index = PositionX + PositionY * SCREEN_WIDTH;
+                if (State.Screen[Index] == 1)
+                {
+                    State.RegisterV[0xF] = 1;
+                }
+                State.Screen[Index] ^= 1;
+            }
+        }
+    }
+}
+
+static void OpcodeSKP_V(chip8_state& State, instruction_data Data)
+{
+    uint8_t Key = State.RegisterV[Data.X];
+    if (State.Keypad[Key])
+    {
+        State.RegisterPC += 2;
+    }
+}
+
+static void OpcodeSKNP_V(chip8_state& State, instruction_data Data)
+{
+    uint8_t Key = State.RegisterV[Data.X];
+    if (!State.Keypad[Key])
+    {
+        State.RegisterPC += 2;
+    }
+}
+
+static void OpcodeLD_VD(chip8_state& State, instruction_data Data)
+{
+    State.RegisterV[Data.X] = State.DelayTimer;
+}
+
+static void OpcodeLD_VK(chip8_state& State, instruction_data Data)
+{
+    bool KeyPressed = false;
+    for (int Key = 0; Key < 16; ++Key)
+    {
+        if (State.Keypad[Key] != 0)
+        {
+            State.RegisterV[Data.X] = Key;
+            KeyPressed = true;
+        }
+    }
+    
+    if (!KeyPressed)
+    {
+        State.RegisterPC -= 2;
+    }
+}
+
+static void OpcodeLD_DV(chip8_state& State, instruction_data Data)
+{
+    State.DelayTimer = State.RegisterV[Data.X];
+}
+
+static void OpcodeLD_SV(chip8_state& State, instruction_data Data)
+{
+    State.SoundTimer = State.RegisterV[Data.X];
+}
+
+static void OpcodeADD_IV(chip8_state& State, instruction_data Data)
+{
+    State.RegisterI += State.RegisterV[Data.X];
+}
+
+static void OpcodeLD_FV(chip8_state& State, instruction_data Data)
+{
+    State.RegisterI = FONTSET_ADDRESS + State.RegisterV[Data.X] * FONT_SIZE;
+}
+
+static void OpcodeLD_BV(chip8_state& State, instruction_data Data)
+{
+    State.Memory[State.RegisterI] = State.RegisterV[Data.X] / 100;
+    State.Memory[State.RegisterI + 1] = (State.RegisterV[Data.X] / 10) % 10;
+    State.Memory[State.RegisterI + 2] = State.RegisterV[Data.X] % 10;
+}
+
+static void OpcodeLD_IV(chip8_state& State, instruction_data Data)
+{
+    for (int Index = 0; Index <= Data.X; ++Index)
+    {
+        State.Memory[State.RegisterI + Index] = State.RegisterV[Index];
+    }
+}
+
+static void OpcodeLD_VI(chip8_state& State, instruction_data Data)
+{
+    for (int Index = 0; Index <= Data.X; ++Index)
+    {
+        State.RegisterV[Index] = State.Memory[State.RegisterI + Index];
+    }
+}
+
 static bool Chip8LoadProgram(chip8_state& State, std::string_view Filepath)
 {
     std::ifstream Stream(Filepath.data(), std::ios::binary);
@@ -343,321 +638,6 @@ static instruction_data Chip8DecodeInstruction(uint16_t Instruction)
     Data.KK = (Instruction & 0x00FF);
     
     return Data;
-}
-
-// 00E0 - CLS
-// Clear the display.
-static void OpcodeCLS(chip8_state& State, instruction_data Data)
-{
-    memset(State.Screen.data(), 0, State.Screen.size());
-}
-
-// 00EE - RET
-// Return from a subroutine.
-static void OpcodeRET(chip8_state& State, instruction_data Data)
-{
-    State.RegisterPC = State.Stack[--State.RegisterSP];
-}
-
-// 1nnn - JP addr
-// Jump to location nnn.
-static void OpcodeJP_A(chip8_state& State, instruction_data Data)
-{
-    State.RegisterPC = Data.NNN;
-}
-
-// 2nnn - CALL addr
-// Call subroutine at nnn.
-static void OpcodeCALL_A(chip8_state& State, instruction_data Data)
-{
-    State.Stack[State.RegisterSP++] = State.RegisterPC;
-    State.RegisterPC = Data.NNN;
-}
-
-// 3xkk - SE Vx, byte
-// Skip next instruction if Vx = kk.
-static void OpcodeSE_VB(chip8_state& State, instruction_data Data)
-{
-    if (State.RegisterV[Data.X] == Data.KK)
-    {
-        State.RegisterPC += 2;
-    }
-}
-
-// 4xkk - SNE Vx, byte
-// Skip next instruction if Vx != kk.
-static void OpcodeSNE_VB(chip8_state& State, instruction_data Data)
-{
-    if (State.RegisterV[Data.X] != Data.KK)
-    {
-        State.RegisterPC += 2;
-    }
-}
-
-// 5xy0 - SE Vx, Vy
-// Skip next instruction if Vx = Vy.
-static void OpcodeSE_VV(chip8_state& State, instruction_data Data)
-{
-    if (State.RegisterV[Data.X] == State.RegisterV[Data.Y])
-    {
-        State.RegisterPC += 2;
-    }
-}
-
-// 6xkk - LD Vx, byte
-// Set Vx = kk.
-static void OpcodeLD_VB(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[Data.X] = Data.KK;
-}
-
-// 7xkk - ADD Vx, byte
-// Set Vx = Vx + kk.
-static void OpcodeADD_VB(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[Data.X] += Data.KK;
-}
-
-// 8xy0 - LD Vx, Vy
-// Set Vx = Vy.
-static void OpcodeLD_VV(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[Data.X] = State.RegisterV[Data.Y];
-}
-
-// 8xy1 - OR Vx, Vy
-// Set Vx = Vx OR Vy.
-static void OpcodeOR_VV(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[Data.X] |= State.RegisterV[Data.Y];
-}
-
-// 8xy2 - AND Vx, Vy
-// Set Vx = Vx AND Vy.
-static void OpcodeAND_VV(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[Data.X] &= State.RegisterV[Data.Y];
-}
-
-// 8xy3 - XOR Vx, Vy
-// Set Vx = Vx XOR Vy.
-static void OpcodeXOR_VV(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[Data.X] ^= State.RegisterV[Data.Y];
-}
-
-// 8xy4 - ADD Vx, Vy
-// Set Vx = Vx + Vy, set VF = carry.
-static void OpcodeADD_VV(chip8_state& State, instruction_data Data)
-{
-    uint16_t Result = State.RegisterV[Data.X] + State.RegisterV[Data.Y];
-    State.RegisterV[Data.X] = Result & 0x00FF;
-    State.RegisterV[0xF] = (Result > 0xFF);
-}
-
-// 8xy5 - SUB Vx, Vy
-// Set Vx = Vx - Vy, set VF = NOT borrow.
-static void OpcodeSUB_VV(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[0xF] = (State.RegisterV[Data.X] >= State.RegisterV[Data.Y]);
-    State.RegisterV[Data.X] -= State.RegisterV[Data.Y];
-}
-
-// 8xy6 - SHR Vx {, Vy}
-// Set Vx = Vx SHR 1.
-static void OpcodeSHR_V(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[0xF] = State.RegisterV[Data.X] & 0x01;
-    State.RegisterV[Data.X] >>= 1;
-}
-
-// 8xy7 - SUBN Vx, Vy
-// Set Vx = Vy - Vx, set VF = NOT borrow.
-static void OpcodeSUBN_VV(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[0xF] = (State.RegisterV[Data.Y] >= State.RegisterV[Data.X]);
-    State.RegisterV[Data.X] = State.RegisterV[Data.Y] - State.RegisterV[Data.X];
-}
-
-// 8xyE - SHL Vx {, Vy}
-// Set Vx = Vx SHL 1.
-static void OpcodeSHL_V(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[0xF] = (State.RegisterV[Data.X] & 0x80) >> 7;
-    State.RegisterV[Data.X] <<= 1;
-}
-
-// 9xy0 - SNE Vx, Vy
-// Skip next instruction if Vx != Vy.
-static void OpcodeSNE_VV(chip8_state& State, instruction_data Data)
-{
-    if (State.RegisterV[Data.X] != State.RegisterV[Data.Y])
-    {
-        State.RegisterPC += 2;
-    }
-}
-
-// Annn - LD I, addr
-// Set I = nnn.
-static void OpcodeLD_IA(chip8_state& State, instruction_data Data)
-{
-    State.RegisterI = Data.NNN;
-}
-
-// Bnnn - JP V0, addr
-// Jump to location nnn + V0.
-static void OpcodeJP_VA(chip8_state& State, instruction_data Data)
-{
-    State.RegisterPC = Data.NNN + State.RegisterV[0x0];
-}
-
-// Cxkk - RND Vx, byte
-// Set Vx = random byte AND kk.
-static void OpcodeRND_VB(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[Data.X] = GetRandomByte() & Data.KK;
-}
-
-// Dxyn - DRW Vx, Vy, nibble
-// Display n-byte sprite starting at Memory location I at (Vx, Vy), set VF = collision.
-static void OpcodeDRW_VVN(chip8_state& State, instruction_data Data)
-{
-    uint8_t StartX = State.RegisterV[Data.X] % SCREEN_WIDTH;
-    uint8_t StartY = State.RegisterV[Data.Y] % SCREEN_HEIGHT;
-    
-    State.RegisterV[0xF] = 0;
-    State.ShouldDraw = true;
-    
-    for (int Row = 0; Row < Data.N; ++Row)
-    {
-        uint8_t Sprite = State.Memory[State.RegisterI + Row];
-        for (int Column = 0; Column < 8; ++Column)
-        {
-            uint8_t PositionX = StartX + Column;
-            uint8_t PositionY = StartY + Row;
-            if (PositionX >= SCREEN_WIDTH || PositionY >= SCREEN_HEIGHT)
-            {
-                continue;
-            }
-            
-            uint8_t Pixel = Sprite & (0x80 >> Column);
-            if (Pixel != 0)
-            {
-                uint16_t Index = PositionX + PositionY * SCREEN_WIDTH;
-                if (State.Screen[Index] == 1)
-                {
-                    State.RegisterV[0xF] = 1;
-                }
-                State.Screen[Index] ^= 1;
-            }
-        }
-    }
-}
-
-// Ex9E - SKP Vx
-// Skip next instruction if key with the value of Vx is pressed.
-static void OpcodeSKP_V(chip8_state& State, instruction_data Data)
-{
-    uint8_t Key = State.RegisterV[Data.X];
-    if (State.Keypad[Key])
-    {
-        State.RegisterPC += 2;
-    }
-}
-
-// ExA1 - SKNP Vx
-// Skip next instruction if key with the value of Vx is not pressed.
-static void OpcodeSKNP_V(chip8_state& State, instruction_data Data)
-{
-    uint8_t Key = State.RegisterV[Data.X];
-    if (!State.Keypad[Key])
-    {
-        State.RegisterPC += 2;
-    }
-}
-
-// Fx07 - LD Vx, DT
-// Set Vx = delay timer value.
-static void OpcodeLD_VD(chip8_state& State, instruction_data Data)
-{
-    State.RegisterV[Data.X] = State.DelayTimer;
-}
-
-// Fx0A - LD Vx, K
-// Wait for a key press, store the value of the key in Vx.
-static void OpcodeLD_VK(chip8_state& State, instruction_data Data)
-{
-    bool KeyPressed = false;
-    for (int Key = 0; Key < 16; ++Key)
-    {
-        if (State.Keypad[Key] != 0)
-        {
-            State.RegisterV[Data.X] = Key;
-            KeyPressed = true;
-        }
-    }
-    
-    if (!KeyPressed)
-    {
-        State.RegisterPC -= 2;
-    }
-}
-
-// Fx15 - LD DT, Vx
-// Set delay timer = Vx.
-static void OpcodeLD_DV(chip8_state& State, instruction_data Data)
-{
-    State.DelayTimer = State.RegisterV[Data.X];
-}
-
-// Fx18 - LD ST, Vx
-// Set sound timer = Vx.
-static void OpcodeLD_SV(chip8_state& State, instruction_data Data)
-{
-    State.SoundTimer = State.RegisterV[Data.X];
-}
-
-// Fx1E - ADD I, Vx
-// Set I = I + Vx.
-static void OpcodeADD_IV(chip8_state& State, instruction_data Data)
-{
-    State.RegisterI += State.RegisterV[Data.X];
-}
-
-// Fx29 - LD F, Vx
-// Set I = location of sprite for digit Vx.
-static void OpcodeLD_FV(chip8_state& State, instruction_data Data)
-{
-    State.RegisterI = FONTSET_ADDRESS + State.RegisterV[Data.X] * FONT_SIZE;
-}
-
-// Fx33 - LD B, Vx
-// Store BCD representation of Vx in Memory locations I, I+1, and I+2.
-static void OpcodeLD_BV(chip8_state& State, instruction_data Data)
-{
-    State.Memory[State.RegisterI] = State.RegisterV[Data.X] / 100;
-    State.Memory[State.RegisterI + 1] = (State.RegisterV[Data.X] / 10) % 10;
-    State.Memory[State.RegisterI + 2] = State.RegisterV[Data.X] % 10;
-}
-
-// Fx55 - LD [I], Vx
-// Store registers V0 through Vx in Memory starting at location I.
-static void OpcodeLD_IV(chip8_state& State, instruction_data Data)
-{
-    for (int Index = 0; Index <= Data.X; ++Index)
-    {
-        State.Memory[State.RegisterI + Index] = State.RegisterV[Index];
-    }
-}
-
-// Fx65 - LD Vx, [I]
-// Read registers V0 through Vx from Memory starting at location I.
-static void OpcodeLD_VI(chip8_state& State, instruction_data Data)
-{
-    for (int Index = 0; Index <= Data.X; ++Index)
-    {
-        State.RegisterV[Index] = State.Memory[State.RegisterI + Index];
-    }
 }
 
 static void Chip8ExecuteInstruction(chip8_state& State, instruction_data Data)
