@@ -7,3 +7,4 @@ devenv.sh
 
 # Directories
 /.vscode
+/build
