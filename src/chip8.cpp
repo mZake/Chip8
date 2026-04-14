@@ -109,7 +109,7 @@ struct instruction_data
 
 static bool InitPlatform(platform_state& State);
 static void ClosePlatform(platform_state& State);
-static void PlatformProcessEvents(platform_state& State);
+static void PlatformProcessEvents(platform_state& State, chip8_state& Chip8State);
 static void PlatformUpdateKeypad(platform_state& State, std::array<uint8_t, 16>& Keypad);
 static void PlatformRenderScreen(platform_state& State, const std::array<uint8_t, 2048>& Screen);
 
@@ -155,6 +155,8 @@ static instruction_data Chip8DecodeInstruction(uint16_t Instruction);
 static void Chip8ExecuteInstruction(chip8_state& State, instruction_data Data);
 static void Chip8EmulateInstructionCycle(chip8_state& State);
 static void Chip8UpdateTimers(chip8_state& State);
+static void Chip8SaveSnapshot(chip8_state& State);
+static void Chip8LoadSnapshot(chip8_state& State);
 
 static std::array<uint8_t, 80> s_Fontset = { 
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -268,7 +270,7 @@ static void ClosePlatform(platform_state& State)
     SDL_Quit();
 }
 
-static void PlatformProcessEvents(platform_state& State)
+static void PlatformProcessEvents(platform_state& State, chip8_state& Chip8State)
 {
     SDL_Event Event = {};
     while (SDL_PollEvent(&Event))
@@ -276,6 +278,20 @@ static void PlatformProcessEvents(platform_state& State)
         if (Event.type == SDL_EVENT_QUIT)
         {
             State.ShouldQuit = true;
+        }
+        else if (Event.type == SDL_EVENT_KEY_DOWN)
+        {
+            if (Event.key.mod & SDL_KMOD_CTRL)
+            {
+                if (Event.key.key == SDLK_L)
+                {
+                    Chip8LoadSnapshot(Chip8State);
+                }
+                else if (Event.key.key == SDLK_S)
+                {
+                    Chip8SaveSnapshot(Chip8State);
+                }
+            }
         }
     }
 }
@@ -711,6 +727,20 @@ static void Chip8UpdateTimers(chip8_state& State)
     }
 }
 
+static void Chip8SaveSnapshot(chip8_state& State)
+{
+    std::ofstream Stream("snapshot.bin", std::ios::binary);
+    if (Stream.is_open())
+        Stream.write((char*)&State, sizeof(State));
+}
+
+static void Chip8LoadSnapshot(chip8_state& State)
+{
+    std::ifstream Stream("snapshot.bin", std::ios::binary);
+    if (Stream.is_open())
+        Stream.read((char*)&State, sizeof(State));
+}
+
 int main(int Argc, char** Argv)
 {
     if (Argc != 2)
@@ -744,7 +774,7 @@ int main(int Argc, char** Argv)
         
         while (Accumulator >= FRAME_TIME)
         {
-            PlatformProcessEvents(PlatformState);
+            PlatformProcessEvents(PlatformState, Chip8State);
             PlatformUpdateKeypad(PlatformState, Chip8State.Keypad);
             
             for (int I = 0; I < 10; ++I)
