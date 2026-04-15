@@ -299,6 +299,10 @@ static void PlatformProcessEvents(platform_state& State, chip8_state& Chip8State
                 }
             }
         }
+        else if (Event.type == SDL_EVENT_WINDOW_RESIZED)
+        {
+            PlatformRenderScreen(State, Chip8State.Screen);
+        }
     }
 }
 
