@@ -79,6 +79,7 @@ struct platform_state
     SDL_Renderer* Renderer;
     const bool* Keyboard;
     bool ShouldQuit;
+    bool Paused;
 };
 
 struct chip8_state
@@ -246,6 +247,7 @@ static bool InitPlatform(platform_state& State)
     
     State.Keyboard = SDL_GetKeyboardState(nullptr);
     State.ShouldQuit = false;
+    State.Paused = false;
     
     SDL_SetRenderLogicalPresentation(State.Renderer, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_LOGICAL_PRESENTATION_STRETCH);
     SDL_SetRenderVSync(State.Renderer, 1);
@@ -290,6 +292,10 @@ static void PlatformProcessEvents(platform_state& State, chip8_state& Chip8State
                 else if (Event.key.key == SDLK_S)
                 {
                     Chip8SaveSnapshot(Chip8State);
+                }
+                else if (Event.key.key == SDLK_P)
+                {
+                    State.Paused = !State.Paused;
                 }
             }
         }
@@ -777,17 +783,20 @@ int main(int Argc, char** Argv)
             PlatformProcessEvents(PlatformState, Chip8State);
             PlatformUpdateKeypad(PlatformState, Chip8State.Keypad);
             
-            for (int I = 0; I < 10; ++I)
+            if (!PlatformState.Paused)
             {
-                Chip8EmulateInstructionCycle(Chip8State);
-            }
-            
-            Chip8UpdateTimers(Chip8State);
-            
-            if (Chip8State.ShouldDraw)
-            {
-                Chip8State.ShouldDraw = false;
-                PlatformRenderScreen(PlatformState, Chip8State.Screen);
+                for (int I = 0; I < 10; ++I)
+                {
+                    Chip8EmulateInstructionCycle(Chip8State);
+                }
+                
+                Chip8UpdateTimers(Chip8State);
+                
+                if (Chip8State.ShouldDraw)
+                {
+                    Chip8State.ShouldDraw = false;
+                    PlatformRenderScreen(PlatformState, Chip8State.Screen);
+                }
             }
             
             Accumulator -= FRAME_TIME;
