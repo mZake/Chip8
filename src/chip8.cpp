@@ -228,7 +228,7 @@ static uint8_t GetRandomByte()
 
 static bool InitPlatform(platform_state& State)
 {
-    if (!SDL_Init(SDL_INIT_VIDEO))
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO))
     {
         return false;
     }
@@ -735,6 +735,8 @@ static void Chip8UpdateTimers(chip8_state& State)
     {
         --State.SoundTimer;
     }
+    
+    State.ShouldPlaySound = State.SoundTimer > 0;
 }
 
 static void Chip8SaveSnapshot(chip8_state& State)
@@ -773,6 +775,32 @@ int main(int Argc, char** Argv)
         return 1;
     }
     
+    int SamplesPerSecond = 48000;
+    float Duration = 0.025f;
+    int SampleCount = SamplesPerSecond * Duration;
+    int Frequency = 500;
+    float Amplitude = 0.1f;
+    
+    float* Buffer = new float[SampleCount];
+    float Phase = 0.0f;
+    for (int Index = 0; Index < SampleCount; ++Index)
+    {
+        Buffer[Index] = (Phase < 0.5f) ? Amplitude : -Amplitude;
+        
+        Phase += (float)Frequency / (float)SamplesPerSecond;
+        if (Phase >= 1.0f)
+            Phase -= 1.0f;
+    }
+    
+    SDL_AudioSpec AudioSpec = {};
+    AudioSpec.format = SDL_AUDIO_S16;
+    AudioSpec.channels = 1;
+    AudioSpec.freq = SamplesPerSecond;
+    
+    SDL_AudioStream* AudioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+                                                             &AudioSpec, nullptr, nullptr);
+    SDL_ResumeAudioStreamDevice(AudioStream);
+    
     double Accumulator = 0.0;
     uint64_t LastTicks = SDL_GetTicks();
     
@@ -795,6 +823,12 @@ int main(int Argc, char** Argv)
                 }
                 
                 Chip8UpdateTimers(Chip8State);
+                
+                if (Chip8State.ShouldPlaySound)
+                {
+                    SDL_ClearAudioStream(AudioStream);
+                    SDL_PutAudioStreamData(AudioStream, Buffer, sizeof(float) * SampleCount);
+                }
                 
                 if (Chip8State.ShouldDraw)
                 {
