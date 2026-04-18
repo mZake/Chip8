@@ -31,6 +31,17 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
 The build artifacts are placed in the `build/<Config>` directory.
 
+## How To Use
+Load CHIP-8 ROM:
+```sh
+chip8 /path/to/rom
+```
+
+While Chip8 is executing, you can use the following options:
+- Ctrl+S: Save snapshot of current state
+- Ctrl+L: Load latest saved snapshot
+- Ctrl+P: Pause/Resume execution
+
 ## References
 
 - [Cowgod's CHIP-8 Technical Reference](http://devernay.free.fr/hacks/chip8/C8TECH10.HTM)
