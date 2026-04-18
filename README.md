@@ -8,15 +8,11 @@ Chip8 is a single-file, simple and minimalist implementation of the CHIP-8 virtu
 - **Minimalist:** Focused on essential functionality.
 - **Low Dependency:** SDL3 is the only dependency.
 
-## How to Build
+## Build Instructions
 
-Currently there are no releases available, so you need to build from source. But no need to worry, Chip8 was designed to be straightforward to build!
+Before proceeding, make sure you have CMake 3.15+ and a C++17 compiler installed.
 
-**Prerequisites**
-- CMake 3.15+
-- C++ Compiler (GCC, Clang, MSVC)
-
-Clone the respository and its submodules:
+Clone the repository using Git:
 ```sh
 git clone https://github.com/mZake/Chip8.git --recursive
 cd Chip8
@@ -28,7 +24,12 @@ cmake -S . -B build
 cmake --build build
 ```
 
-The executable is placed in the `build/$<CONFIGURATION>` directory (`build/Debug` or `build/Release`).
+By default, the project is built in Debug mode. You can change this by setting the `CMAKE_BUILD_TYPE` option:
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+```
+
+The build artifacts are placed in the `build/<Config>` directory.
 
 ## References
 
