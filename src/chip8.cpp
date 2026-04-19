@@ -3,6 +3,7 @@
 #include <fstream>
 #include <random>
 #include <string_view>
+#include <vector>
 
 #include <stdio.h>
 #include <stdint.h>
@@ -77,6 +78,8 @@ struct platform_state
 {
     SDL_Window* Window;
     SDL_Renderer* Renderer;
+    SDL_AudioStream* AudioStream;
+    std::vector<float> AudioBuffer;
     const bool* Keyboard;
     bool ShouldQuit;
     bool Paused;
@@ -113,6 +116,7 @@ static void ClosePlatform(platform_state& State);
 static void PlatformProcessEvents(platform_state& State, chip8_state& Chip8State);
 static void PlatformUpdateKeypad(platform_state& State, std::array<uint8_t, 16>& Keypad);
 static void PlatformRenderScreen(platform_state& State, const std::array<uint8_t, 2048>& Screen);
+static void PlatformOutputAudio(platform_state& State);
 
 static void OpcodeStub(chip8_state& State, instruction_data Data);
 static void OpcodeCLS(chip8_state& State, instruction_data Data);
@@ -245,6 +249,35 @@ static bool InitPlatform(platform_state& State)
         return false;
     }
     
+    int AudioSamplesPerSecond = 48000;
+    float AudioDuration = 0.025f;
+    int AudioSampleCount = AudioSamplesPerSecond * AudioDuration;
+    int AudioFrequency = 500;
+    float AudioAmplitude = 0.1f;
+    
+    SDL_AudioSpec AudioSpec = {};
+    AudioSpec.format = SDL_AUDIO_F32;
+    AudioSpec.channels = 1;
+    AudioSpec.freq = AudioSamplesPerSecond;
+    
+    State.AudioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+                                                  &AudioSpec, nullptr, nullptr);
+    if (State.AudioStream)
+    {
+        SDL_ResumeAudioStreamDevice(State.AudioStream);
+        
+        State.AudioBuffer.resize(AudioSampleCount);
+        float Phase = 0.0f;
+        for (float& Sample : State.AudioBuffer)
+        {
+            Sample = (Phase < 0.5f) ? AudioAmplitude : -AudioAmplitude;
+            
+            Phase += (float)AudioFrequency / (float)AudioSamplesPerSecond;
+            if (Phase >= 1.0f)
+                Phase -= 1.0f;
+        }
+    }
+    
     State.Keyboard = SDL_GetKeyboardState(nullptr);
     State.ShouldQuit = false;
     State.Paused = false;
@@ -259,6 +292,11 @@ static bool InitPlatform(platform_state& State)
 
 static void ClosePlatform(platform_state& State)
 {
+    if (State.AudioStream)
+    {
+        SDL_DestroyAudioStream(State.AudioStream);
+    }
+    
     if (State.Renderer)
     {
         SDL_DestroyRenderer(State.Renderer);
@@ -345,6 +383,16 @@ static void PlatformRenderScreen(platform_state& State, const std::array<uint8_t
     }
     
     SDL_RenderPresent(State.Renderer);
+}
+
+static void PlatformOutputAudio(platform_state& State)
+{
+    if (!State.AudioStream)
+        return;
+    
+    SDL_ClearAudioStream(State.AudioStream);
+    SDL_PutAudioStreamData(State.AudioStream, State.AudioBuffer.data(),
+                           sizeof(float) * State.AudioBuffer.size());
 }
 
 static void OpcodeStub(chip8_state& State, instruction_data Data)
@@ -775,32 +823,6 @@ int main(int Argc, char** Argv)
         return 1;
     }
     
-    int SamplesPerSecond = 48000;
-    float Duration = 0.025f;
-    int SampleCount = SamplesPerSecond * Duration;
-    int Frequency = 500;
-    float Amplitude = 0.1f;
-    
-    float* Buffer = new float[SampleCount];
-    float Phase = 0.0f;
-    for (int Index = 0; Index < SampleCount; ++Index)
-    {
-        Buffer[Index] = (Phase < 0.5f) ? Amplitude : -Amplitude;
-        
-        Phase += (float)Frequency / (float)SamplesPerSecond;
-        if (Phase >= 1.0f)
-            Phase -= 1.0f;
-    }
-    
-    SDL_AudioSpec AudioSpec = {};
-    AudioSpec.format = SDL_AUDIO_S16;
-    AudioSpec.channels = 1;
-    AudioSpec.freq = SamplesPerSecond;
-    
-    SDL_AudioStream* AudioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-                                                             &AudioSpec, nullptr, nullptr);
-    SDL_ResumeAudioStreamDevice(AudioStream);
-    
     double Accumulator = 0.0;
     uint64_t LastTicks = SDL_GetTicks();
     
@@ -825,10 +847,7 @@ int main(int Argc, char** Argv)
                 Chip8UpdateTimers(Chip8State);
                 
                 if (Chip8State.ShouldPlaySound)
-                {
-                    SDL_ClearAudioStream(AudioStream);
-                    SDL_PutAudioStreamData(AudioStream, Buffer, sizeof(float) * SampleCount);
-                }
+                    PlatformOutputAudio(PlatformState);
                 
                 if (Chip8State.ShouldDraw)
                 {
